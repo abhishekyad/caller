@@ -18,7 +18,7 @@ export default function App() {
       const tokenResp = await fetch("http://localhost:3001/get_token");
       const { token } = await tokenResp.json();
 
-      await room.connect("wss://alpha-kojiftd1.livekit.cloud", token);
+      await room.connect("wss://<YOUR_PROJECT>.livekit.cloud", token);
 
       // Local mic
       const [audioTrack] = await createLocalTracks({ audio: true });
