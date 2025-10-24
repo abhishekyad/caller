@@ -2,8 +2,8 @@ import jwt from "jsonwebtoken";
 import express from "express";
 import cors from "cors"
 
-const API_KEY = "APIv8zGgiJp2G7p"
-const API_SECRET = "oKokiM63q4ffy5i6G4G63b24u75y5efxHJBG7FjW4exE"
+const API_KEY = "<YOUR_LIVEKIT_API_KEY>"
+const API_SECRET = "<YOUR_LIVEKIT_SECRET>"
 
 const app = express();
 app.use(cors({
