@@ -50,32 +50,71 @@ export default function App() {
     }
   };
 
-  const leaveRoom = async () => {
-    console.log("⏹ Stopping recording and sending audio...");
+const leaveRoom = async () => {
+  console.log("⏹ Stopping recording and sending audio...");
 
-    if (processorRef.current) processorRef.current.disconnect();
-    if (audioContextRef.current) audioContextRef.current.close();
-    if (roomRef.current) roomRef.current.disconnect();
+  // Disconnect audio
+  if (processorRef.current) processorRef.current.disconnect();
+  if (audioContextRef.current) audioContextRef.current.close();
+  if (roomRef.current) roomRef.current.disconnect();
 
-    // Convert buffered Float32 chunks → PCM16 WAV blob
-    const allSamples = mergeFloat32Chunks(audioChunksRef.current);
-    const wavBlob = encodeWAV(allSamples, 44100);
+  // Convert buffered Float32 chunks → PCM16 WAV blob
+  const allSamples = mergeFloat32Chunks(audioChunksRef.current);
+  const wavBlob = encodeWAV(allSamples, 44100);
 
-    // Send to backend
-    const res = await fetch("http://127.0.0.1:5000/call", {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: await wavBlob.arrayBuffer(),
-    });
+  // Send audio to backend
+  const res = await fetch("http://127.0.0.1:5000/call", {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: await wavBlob.arrayBuffer(),
+  });
 
-    const data = await res.json();
-    setTranscript(data.response || data.text || "I need to check with my supervisor");
-    console.log("✅ Sent to backend:", data);
+  const data = await res.json();
+  console.log("✅ Sent to backend:", data);
 
-    // Reset
-    audioChunksRef.current = [];
-    setConnected(false);
-  };
+  // Reset buffer
+  audioChunksRef.current = [];
+  setConnected(false);
+
+  if (data.status === "answered") {
+    // Known KB answer, show immediately
+    setTranscript(data.response);
+  } else if (data.status === "escalated" && data.request_id) {
+    // Escalated → start SSE to wait for supervisor resolution
+    setTranscript("Waiting for supervisor...");
+
+    const source = new EventSource(
+      `http://127.0.0.1:5000/wait_for_resolution/${data.request_id}`
+    );
+
+    source.onmessage = (event) => {
+      const update = JSON.parse(event.data);
+      console.log("SSE update:", update);
+
+      if (update.status === "resolved") {
+        setTranscript(update.answer);
+        source.close();
+      } else if (update.status === "unresolved") {
+        setTranscript("Unresolved by supervisor");
+        source.close();
+      } else if (update.status === "pending") {
+        setTranscript("Waiting for supervisor...");
+      } else if (update.status === "error") {
+        setTranscript(`Error: ${update.message}`);
+        source.close();
+      }
+    };
+
+    source.onerror = (err) => {
+      console.error("SSE connection error:", err);
+      setTranscript("Connection lost. Unable to get supervisor update.");
+      source.close();
+    };
+  } else {
+    // Fallback for unexpected cases
+    setTranscript("I need to check with my supervisor.");
+  }
+};
 
   // Helper: merge all Float32 chunks
   const mergeFloat32Chunks = (chunks) => {
