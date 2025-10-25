@@ -6,6 +6,8 @@ from datetime import datetime
 from flask import Flask, g, request, jsonify, render_template_string, redirect, url_for
 import whisper
 from flask_cors import CORS
+from flask_cors import cross_origin
+import json
 import numpy as np
 import wave
 import os
@@ -251,6 +253,49 @@ def query(contact,name,question):
         mark_unresolved_after_timeout(req_id, 30)
         return jsonify({"status": "escalated", "request_id": req_id, "message_to_caller": caller_text}), 202
 
+def get_question_from_request_id(request_id):
+    db = sqlite3.connect(DB)
+    db.row_factory = sqlite3.Row
+    cur = db.cursor()
+    cur.execute("SELECT question FROM help_requests WHERE id=?", (request_id,))
+    row = cur.fetchone()
+    db.close()
+    if row:
+        return row["question"]
+    return None
+    
+@app.route("/wait_for_resolution/<int:req_id>")
+@cross_origin()
+def wait_for_resolution(req_id):
+    def event_stream(request_id):  # accept as argument
+        question = get_question_from_request_id(request_id)
+        if not question:
+            yield f"data: {json.dumps({'status':'error','message':'Request not found'})}\n\n"
+            return
+
+        # loop until resolved/unresolved
+        db = sqlite3.connect(DB)
+        db.row_factory = sqlite3.Row
+        cur = db.cursor()
+        waited = 0
+        timeout = 30
+        interval = 2
+        while waited < timeout:
+            cur.execute("SELECT status, answer FROM help_requests WHERE id=?", (request_id,))
+            r = cur.fetchone()
+            if r and r["status"] == "resolved":
+                yield f"data: {json.dumps({'status':'resolved','answer':r['answer']})}\n\n"
+                break
+            elif r and r["status"] == "unresolved":
+                yield f"data: {json.dumps({'status':'unresolved','message':'Unresolved by supervisor'})}\n\n"
+                break
+            else:
+                yield f"data: {json.dumps({'status':'pending'})}\n\n"
+            time.sleep(interval)
+            waited += interval
+        db.close()
+
+    return Response(stream_with_context(event_stream(req_id)), mimetype="text/event-stream")
 ### -----------------------
 ### Supervisor UI & APIs
 ### -----------------------
