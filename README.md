@@ -1,3 +1,5 @@
+This project extracts Live Audio from a LiveKit room and processes it in the backend, ultimately responding to the user query.
+
 # Clone the repo locally
 
 git clone <HTTPS_URL> <br>
